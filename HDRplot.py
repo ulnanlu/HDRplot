@@ -2,6 +2,7 @@ import os
 import subprocess
 import re
 import json
+import argparse
 from vapoursynth import core
 import awsmfunc as awf
 from pymediainfo import MediaInfo
@@ -22,7 +23,7 @@ def HDRplot(
     top: int = 0,
     bottom: int = 0,
     trimStart: int = 0,
-    trimEnd: int = 0
+    trimEnd: int = 0,
 ):
     """
     Plot the brightness of each frame of a HDR/DV hevc/hevc video file.
@@ -43,16 +44,17 @@ def HDRplot(
     :param trimEnd: number ot frames to trim at the end
     """
 
-
-    #----------------#
+    # ----------------#
     # Initialization #
-    #----------------#
+    # ----------------#
 
     colorama_init()
 
     videoFile = os.path.abspath(path)
     if not os.path.exists(videoFile):
-        print(f"{Fore.RED}Video file{Style.RESET_ALL}  {path} {Fore.RED}not found.{Style.RESET_ALL}")
+        print(
+            f"{Fore.RED}Video file{Style.RESET_ALL}  {path} {Fore.RED}not found.{Style.RESET_ALL}"
+        )
         return
 
     media_info = MediaInfo.parse(videoFile)
@@ -74,28 +76,36 @@ def HDRplot(
         mdlMin = media_info.video_tracks[0].mastering_display_luminance[5:11]
         mdlMax = media_info.video_tracks[0].mastering_display_luminance[24:28]
     if "Dolby Vision" in hdrFormat:
-        command = ['ffmpeg -i ' + "'" + videoFile + "'" + ' -c:v copy -bsf:v hevc_mp4toannexb -f hevc - | dovi_tool extract-rpu -o RPU-temp.bin -']
+        command = [
+            "ffmpeg -i "
+            + "'"
+            + videoFile
+            + "'"
+            + " -c:v copy -bsf:v hevc_mp4toannexb -f hevc - | dovi_tool extract-rpu -o RPU-temp.bin -"
+        ]
         subprocess.run(command, shell=True)
-        result = subprocess.run('dovi_tool info -s RPU-temp.bin', stdout=subprocess.PIPE, shell=True)
-        doviSummary = [x.strip() for x in result.stdout.decode().split('\n')]
+        result = subprocess.run(
+            "dovi_tool info -s RPU-temp.bin", stdout=subprocess.PIPE, shell=True
+        )
+        doviSummary = [x.strip() for x in result.stdout.decode().split("\n")]
         # if L1:
         #     subprocess.run('dovi_tool export -i RPU-temp.bin -d all=RPU-temp.json', shell=True)
         #     with open('RPU-temp.json') as file:
         #         RPU = json.load(file)
         #     subprocess.run('rm RPU-temp.json', shell=True)
-        subprocess.run('rm RPU-temp.bin', shell=True)
+        subprocess.run("rm RPU-temp.bin", shell=True)
         for line in doviSummary:
-            if 'RPU mastering display' in line:
+            if "RPU mastering display" in line:
                 subTitleDV2 = line
-            if 'Profile' in line:
+            if "Profile" in line:
                 profile = line
-            if 'DM version' in line:
+            if "DM version" in line:
                 version = line
         if profile is not None and version is not None:
             profile = re.sub(":", "", profile)
-            version = re.sub(r'.*\(', '', version)
-            version = re.sub(r'\)', '', version)
-            subTitleDV1 = 'Dolby Vision ' + profile + ', ' + version
+            version = re.sub(r".*\(", "", version)
+            version = re.sub(r"\)", "", version)
+            subTitleDV1 = "Dolby Vision " + profile + ", " + version
     if mdcp is not None:
         subTitleHDR1 = "Mastering Display Color Primaries: " + mdcp
     if mdlMin is not None:
@@ -117,21 +127,29 @@ def HDRplot(
 
     src = core.ffms2.Source(videoFile)
 
-    if left < 0 or right < 0 or top < 0 or bottom < 0 or left % 2 !=0  or right % 2 !=0  or top % 2 !=0  or bottom % 2 !=0:
+    if (
+        left < 0
+        or right < 0
+        or top < 0
+        or bottom < 0
+        or left % 2 != 0
+        or right % 2 != 0
+        or top % 2 != 0
+        or bottom % 2 != 0
+    ):
         print(f"{Fore.RED}Incorrect cropping values.{Style.RESET_ALL}")
         return
 
-    if trimStart < 0 or trimStart+trimEnd > len(src):
+    if trimStart < 0 or trimStart + trimEnd > len(src):
         print(f"{Fore.RED}Incorrect trim values.{Style.RESET_ALL}")
         return
-
 
     if title is None:
         title = "HDR grade: " + path
 
     HDRclip = core.std.Crop(src, left=left, right=right, top=top, bottom=bottom)
 
-    filename = 'lightLevel-' + fileIdentifier + '.json'
+    filename = "lightLevel-" + fileIdentifier + ".json"
     jsonFile = os.path.abspath(filename)
 
     # if L1:
@@ -155,17 +173,22 @@ def HDRplot(
             # DoVi P5 video. We have to tonemap to HDR before measuring.
             HDRclip = core.std.SetFrameProp(HDRclip, prop="_ColorRange", intval=0)
             HDRclip = awf.Depth(HDRclip, 16)
-            HDRclip = core.placebo.Tonemap(HDRclip, src_csp = 3, dst_csp = 1)
-            HDRclip = core.resize.Spline36(HDRclip, range_s="limited", range_in_s="full", dither_type="error_diffusion")
+            HDRclip = core.placebo.Tonemap(HDRclip, src_csp=3, dst_csp=1)
+            HDRclip = core.resize.Spline36(
+                HDRclip,
+                range_s="limited",
+                range_in_s="full",
+                dither_type="error_diffusion",
+            )
             HDRclip = awf.Depth(HDRclip, 10)
             HDRclip = core.std.SetFrameProp(HDRclip, prop="_ColorRange", intval=1)
             HDRclip = core.std.SetFrameProp(HDRclip, prop="_Matrix", intval=9)
             HDRclip = core.std.SetFrameProp(HDRclip, prop="_Primaries", intval=9)
             HDRclip = core.std.SetFrameProp(HDRclip, prop="_Transfer", intval=16)
 
-        #------------------------------------------------------------#
+        # ------------------------------------------------------------#
         # Extract HDR data from clip and store them in a double list #
-        #------------------------------------------------------------#
+        # ------------------------------------------------------------#
 
         # measurements = awf.measure_hdr10_content_light_level(HDRclip, linearized=False)
         measurements = awf.measure_hdr10_content_light_level(HDRclip)
@@ -176,52 +199,49 @@ def HDRplot(
         HDRMax = [awf.st2084_eotf(x) * 10000 for x in maxrgb_pq_values]
         HDRFALL = [awf.st2084_eotf(x) * 10000 for x in fall_pq_values]
 
-
         lightLevel = [HDRMax, HDRFALL]
 
         # Write HDR data to file for possible reuse
-        with open(jsonFile, 'w') as f:
+        with open(jsonFile, "w") as f:
             json.dump(lightLevel, f)
 
-    #------------------------------------------#
+    # ------------------------------------------#
     # Trim HDR metada in view of sync'ing them #
-    #------------------------------------------#
+    # ------------------------------------------#
 
     start = trimStart
     end = len(HDRclip) - trimEnd
     lightLevel[0] = lightLevel[0][start:end]
     lightLevel[1] = lightLevel[1][start:end]
 
-
-    #------------------------------------------#
+    # ------------------------------------------#
     # Compute max and average values from data #
-    #------------------------------------------#
+    # ------------------------------------------#
 
-    maxCLL = round(max(lightLevel[0]),2)
-    maxFALL = round(max(lightLevel[1]),2)
-    avgCLL = round(sum(lightLevel[0])/len(lightLevel[0]),2)
-    avgFALL = round(sum(lightLevel[1])/len(lightLevel[1]),2)
+    maxCLL = round(max(lightLevel[0]), 2)
+    maxFALL = round(max(lightLevel[1]), 2)
+    avgCLL = round(sum(lightLevel[0]) / len(lightLevel[0]), 2)
+    avgFALL = round(sum(lightLevel[1]) / len(lightLevel[1]), 2)
 
     CLLpq = [awf.st2084_inverse_eotf(x) for x in lightLevel[0]]
     FALLpq = [awf.st2084_inverse_eotf(x) for x in lightLevel[1]]
 
-    maxCLLpq = round(awf.st2084_eotf(np.percentile(CLLpq, 99.5)) * 10000,2)
-    maxFALLpq = round(awf.st2084_eotf(np.percentile(FALLpq, 99.75)) * 10000,2)
+    maxCLLpq = round(awf.st2084_eotf(np.percentile(CLLpq, 99.5)) * 10000, 2)
+    maxFALLpq = round(awf.st2084_eotf(np.percentile(FALLpq, 99.75)) * 10000, 2)
 
-
-    #---------------#
+    # ---------------#
     # Draw the plot #
-    #---------------#
+    # ---------------#
 
     fig, ax = plt.subplots(figsize=(18, 7.2))
-    ax.plot(lightLevel[0], color='royalblue', lw=0.3)
-    ax.plot(lightLevel[1], color='blueviolet', lw=0.3)
+    ax.plot(lightLevel[0], color="royalblue", lw=0.3)
+    ax.plot(lightLevel[1], color="blueviolet", lw=0.3)
     frames = range(len(lightLevel[0]))
-    ax.fill_between(frames, lightLevel[0], lightLevel[1], color='royalblue', alpha=0.4)
-    ax.fill_between(frames, lightLevel[1], 0.1, color='blueviolet', alpha=0.4)
-    plt.grid(True, which ="both",color='black',lw=0.1)
+    ax.fill_between(frames, lightLevel[0], lightLevel[1], color="royalblue", alpha=0.4)
+    ax.fill_between(frames, lightLevel[1], 0.1, color="blueviolet", alpha=0.4)
+    plt.grid(True, which="both", color="black", lw=0.1)
     plt.semilogy()
-    ax.set_title(title, fontsize=16,pad=70)
+    ax.set_title(title, fontsize=16, pad=70)
     ax.set_xlabel("frames", fontsize=10, labelpad=8.0)
     ax.set_ylabel("nits (cd/m${}^2$)", fontsize=10, labelpad=3.0)
     ax.axis([0, len(lightLevel[0]), 0.1, 5000.0])
@@ -231,24 +251,166 @@ def HDRplot(
     # f1 = mpl.ticker.StrMethodFormatter("{x:.3g}")
     # f1.set_scientific(False)
     # ax.yaxis.set_major_formatter(f1)
-    yTicks = [np.format_float_positional(float(x),precision=max(1 - int(np.ceil(np.log10(float(x)))), 0),trim="-",) for x in ax.get_yticks()]
+    yTicks = [
+        np.format_float_positional(
+            float(x),
+            precision=max(1 - int(np.ceil(np.log10(float(x)))), 0),
+            trim="-",
+        )
+        for x in ax.get_yticks()
+    ]
     ax.set_yticklabels(yTicks)
     # ax.spines["top"].set_linewidth(0)
     # ax.spines["right"].set_linewidth(0)
     cll = "CLL"
     fall = "FALL"
-    legend = plt.legend([f"{cll:<7}(maxCLL  = {maxCLLpq:8.2f} nits,  avgCLL  = {avgCLL:8.2f} nits.)", f"{fall:<6}(maxFALL = {maxFALLpq:8.2f} nits,  avgFALL = {avgFALL:8.2f} nits.)"], loc="lower left", fontsize=12)
+    legend = plt.legend(
+        [
+            f"{cll:<7}(maxCLL  = {maxCLLpq:8.2f} nits,  avgCLL  = {avgCLL:8.2f} nits.)",
+            f"{fall:<6}(maxFALL = {maxFALLpq:8.2f} nits,  avgFALL = {avgFALL:8.2f} nits.)",
+        ],
+        loc="lower left",
+        fontsize=12,
+    )
     legend.get_frame().set_alpha(None)
     for line in legend.get_lines():
         line.set_linewidth(2.0)
-    plt.text(0, 1.020, subTitleHDR2,ha='left', va='bottom',transform=ax.transAxes,fontsize=12)
-    plt.text(0, 1.070, subTitleHDR1,ha='left', va='bottom',transform=ax.transAxes,fontsize=12)
-    plt.text(1, 1.020, subTitleDV2,ha='right', va='bottom',transform=ax.transAxes,fontsize=12)
-    plt.text(1, 1.070, subTitleDV1,ha='right', va='bottom',transform=ax.transAxes,fontsize=12)
+    plt.text(
+        0,
+        1.020,
+        subTitleHDR2,
+        ha="left",
+        va="bottom",
+        transform=ax.transAxes,
+        fontsize=12,
+    )
+    plt.text(
+        0,
+        1.070,
+        subTitleHDR1,
+        ha="left",
+        va="bottom",
+        transform=ax.transAxes,
+        fontsize=12,
+    )
+    plt.text(
+        1,
+        1.020,
+        subTitleDV2,
+        ha="right",
+        va="bottom",
+        transform=ax.transAxes,
+        fontsize=12,
+    )
+    plt.text(
+        1,
+        1.070,
+        subTitleDV1,
+        ha="right",
+        va="bottom",
+        transform=ax.transAxes,
+        fontsize=12,
+    )
     plt.tight_layout(pad=0.7)
 
-    plt.savefig('HDRplot-' + fileIdentifier + '.png')
+    plt.savefig("HDRplot-" + fileIdentifier + ".png")
     plt.show()
     plt.close()
 
     return
+
+
+def main():
+    """Main CLI entry point."""
+    parser = argparse.ArgumentParser(
+        description="Plot the brightness of each frame of a HDR/DV HEVC video file.",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  %(prog)s video.mkv
+  %(prog)s video.mkv -i my_file -t "My Custom Title"
+  %(prog)s video.mkv --left 240 --right 240 --top 20 --bottom 20
+  %(prog)s video.mkv --trim-start 100 --trim-end 50
+        """,
+    )
+
+    parser.add_argument("path", help="Path to the video file (relative or absolute)")
+
+    parser.add_argument(
+        "-i",
+        "--identifier",
+        dest="fileIdentifier",
+        default="DEFAULT",
+        help="Tag for output filenames (default: DEFAULT)",
+    )
+
+    parser.add_argument(
+        "-t",
+        "--title",
+        help="Custom title for the plot (default: auto-generated from filename)",
+    )
+
+    parser.add_argument(
+        "-l",
+        "--left",
+        type=int,
+        default=0,
+        help="Left crop value in pixels (must be even, default: 0)",
+    )
+
+    parser.add_argument(
+        "-r",
+        "--right",
+        type=int,
+        default=0,
+        help="Right crop value in pixels (must be even, default: 0)",
+    )
+
+    parser.add_argument(
+        "--top",
+        type=int,
+        default=0,
+        help="Top crop value in pixels (must be even, default: 0)",
+    )
+
+    parser.add_argument(
+        "-b",
+        "--bottom",
+        type=int,
+        default=0,
+        help="Bottom crop value in pixels (must be even, default: 0)",
+    )
+
+    parser.add_argument(
+        "--trim-start",
+        dest="trimStart",
+        type=int,
+        default=0,
+        help="Number of frames to trim at the start (default: 0)",
+    )
+
+    parser.add_argument(
+        "--trim-end",
+        dest="trimEnd",
+        type=int,
+        default=0,
+        help="Number of frames to trim at the end (default: 0)",
+    )
+
+    args = parser.parse_args()
+
+    HDRplot(
+        path=args.path,
+        fileIdentifier=args.fileIdentifier,
+        title=args.title,
+        left=args.left,
+        right=args.right,
+        top=args.top,
+        bottom=args.bottom,
+        trimStart=args.trimStart,
+        trimEnd=args.trimEnd,
+    )
+
+
+if __name__ == "__main__":
+    main()
